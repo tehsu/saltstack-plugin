@@ -1,5 +1,13 @@
 package com.waytta;
 
+import com.suse.saltstack.netapi.client.SaltStackClient;
+import com.suse.saltstack.netapi.datatypes.*;
+import com.suse.saltstack.netapi.*;
+import com.suse.saltstack.netapi.exception.*;
+import static com.suse.saltstack.netapi.AuthModule.*;
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+
 import hudson.Launcher;
 import hudson.Extension;
 import hudson.util.FormValidation;
@@ -18,6 +26,7 @@ import net.sf.json.util.JSONUtils;
 import net.sf.json.JSONSerializer;
 import java.io.*;
 import java.util.*;
+import java.net.*;
 
 import javax.servlet.ServletException;
 
@@ -184,23 +193,19 @@ public class SaltAPIBuilder extends Builder {
 	    mykwarguments = Utils.paramorize(build, listener, kwarguments);
 	    //listener.getLogger().println("Salt Arguments after: "+myarguments);
 
-	    //Setup connection for auth
-	    String token = new String();
-	    JSONObject auth = new JSONObject();
-	    auth.put("username", username);
-	    auth.put("password", userpass);
-	    auth.put("eauth", authtype);
-	    JSONArray authArray = new JSONArray();
-	    authArray.add(auth);
-	    //listener.getLogger().println("Sending auth: "+authArray.toString());
-	    JSONObject httpResponse = new JSONObject();
+	    URI uri = URI.create(servername);
+	    SaltStackClient client = new SaltStackClient(uri);
+	    AuthModule authmodule;
+	    authmodule = AuthModule.valueOf(authtype.toUpperCase());
 
-	    //Get an auth token
-	    token = Utils.getToken(servername, authArray);
-	    if (token.contains("Error")) {
-		listener.getLogger().println(token);
+	    try {
+		//Get an auth token
+		Token token = client.login(username, userpass, authmodule);
+	    } catch ( SaltStackException e) {
+		listener.getLogger().println("Problem: "+e);
 		return false;
 	    }
+
 
 	    //If we got this far, auth must have been pretty good and we've got a token
 	    JSONArray saltArray = new JSONArray();
@@ -231,8 +236,9 @@ public class SaltAPIBuilder extends Builder {
 	    saltFunc.put("tgt", mytarget); 
 	    saltFunc.put("expr_form", targettype);
 	    saltFunc.put("fun", myfunction);
+	    List saltArguments = new ArrayList();
+	    Map kwArgs = new HashMap();
 	    if (myarguments.length() > 0){ 
-		List saltArguments = new ArrayList();
 		//spit on comma seperated not inside of quotes
 		String[] argItems = myarguments.split(",(?=([^\"]*\"[^\"]*\")*[^\"]*$)");
 		for (String arg : argItems) {
@@ -241,11 +247,8 @@ public class SaltAPIBuilder extends Builder {
 		    arg = arg.replaceAll("\"|\\\"", "");
 		    saltArguments.add(arg);
 		}
-		//Add any args to json message
-		saltFunc.element("arg", saltArguments);
 	    }
 	    if (mykwarguments.length() > 0){ 
-		Map kwArgs = new HashMap();
 		//spit on comma seperated not inside of quotes
 		String[] kwargItems = mykwarguments.split(",(?=([^\"]*\"[^\"]*\")*[^\"]*$)");
 		for (String kwarg : kwargItems) {
@@ -257,8 +260,6 @@ public class SaltAPIBuilder extends Builder {
 			kwArgs.put(kwString[0], kwString[1]);
 		    }
 		}
-		//Add any kwargs to json message
-		saltFunc.element("kwarg", kwArgs);
 	    }
             saltArray.add(saltFunc);
 	    if (mySaltMessageDebug) {
@@ -273,27 +274,33 @@ public class SaltAPIBuilder extends Builder {
 
 	    //blocking request
 	    if (myBlockBuild) {
-		String jid = new String();
+		ScheduledJob scheduledJob = new ScheduledJob();
 		//Send request to /minion url. This will give back a jid which we will need to poll and lookup for completion
-		httpResponse = Utils.getJSON(servername+"/minions", saltArray, token);
-		try {
-		    JSONArray returnArray = httpResponse.getJSONArray("return");
-		    for (Object o : returnArray ) {
-			JSONObject line = (JSONObject) o;
-			jid = line.getString("jid");
-		    }
-		    //Print out success
-		    listener.getLogger().println("Running jid: " + jid);
-		} catch (Exception e) {
-		    listener.getLogger().println("Problem: "+myfunction+" "+myarguments+" to "+servername+" for "+mytarget+":\n"+e+"\n\n"+httpResponse.toString(2));
+                try { 
+		    scheduledJob = client.startCommand(mytarget, myfunction, saltArguments, kwArgs);
+		    listener.getLogger().println("Running jid: " + scheduledJob.getJid());
+		} catch ( SaltStackException e) {
+		    listener.getLogger().println("Problem: "+e);
 		    return false;
 		}
 
 		//Request successfully sent. Now use jid to check if job complete
 		int numMinions = 0;
 		int numMinionsDone = 0;
-		JSONArray returnArray = new JSONArray();
-		httpResponse = Utils.getJSON(servername+"/jobs/"+jid, null, token);
+		Map<String, Object> jobResults = new HashMap<String, Object>();
+		//JSONArray returnArray = new JSONArray();
+		//httpResponse = Utils.getJSON(servername+"/jobs/"+jid, null, token);
+		try {
+		    jobResults = client.getJobResult(scheduledJob);
+		    listener.getLogger().println("Got jobResult initialrun" + jobResults.entrySet());
+		} catch ( SaltStackException e) {
+		    listener.getLogger().println("Problem: "+e);
+		    return false;
+		}
+		//for (String key : jobResults.keySet()) {
+		    //numMinionsDone += 1;
+		//}
+		/*
 		try {
 		    //info array will tell us how many minions were targeted
 		    returnArray = httpResponse.getJSONArray("info");
@@ -316,6 +323,7 @@ public class SaltAPIBuilder extends Builder {
 		    listener.getLogger().println("Problem: "+myfunction+" "+myarguments+" to "+servername+" for "+mytarget+":\n"+e+"\n\n"+httpResponse.toString(2));
 		    return false;
 		}
+		*/
 
 
 		//Now that we know how many minions have responded, and how many we are waiting on. Let's see more have finished
@@ -332,45 +340,46 @@ public class SaltAPIBuilder extends Builder {
 			listener.getLogger().println("Cancelling job");
 			return false;
 		    }
-		    httpResponse = Utils.getJSON(servername+"/jobs/"+jid, null, token);
 		    try {
-			returnArray = httpResponse.getJSONArray("return");
-			numMinionsDone = returnArray.getJSONObject(0).names().size();
+			jobResults = client.getJobResult(scheduledJob);
+			listener.getLogger().println("Got jobResult checking minions" + jobResults.entrySet());
+			numMinionsDone = 0;
+			for (String key : jobResults.keySet()) {
+			    numMinionsDone += 1;
+			}
 			if (myClientInterface.equals("local_batch")) {
 			    listener.getLogger().println("Minions finished: " + numMinionsDone);
-			    listener.getLogger().println(returnArray.toString(2));
+			    // TODO print out results of job
 			}
-		    } catch (Exception e) {
-			listener.getLogger().println("Problem: "+myfunction+" "+myarguments+" for "+mytarget+":\n"+e+"\n\n"+httpResponse.toString(2).split("\\\\n")[0]);
+		    } catch ( SaltStackException e) {
+			listener.getLogger().println("Problem: "+e);
 			return false;
 		    }
 		}
-		if (returnArray.get(0).toString().contains("TypeError")) {
-		    listener.getLogger().println("Salt reported an error for "+myfunction+" "+myarguments+" for "+mytarget+":\n"+returnArray.toString(2));
-		    return false;
-		}
 		//Loop is done. We have heard back from everybody. Good work team!
-		listener.getLogger().println("Response on "+myfunction+" "+myarguments+" for "+mytarget+":\n"+returnArray.toString(2));
+		// TODO print out results of job
 	    } else {
 		//Just send a salt request. Don't wait for reply
-		httpResponse = Utils.getJSON(servername, saltArray, token);
+		ScheduledJob scheduledJob = new ScheduledJob();
+		Map<String, Object> jobResults = new HashMap<String, Object>();
 		try {
-		    if (!httpResponse.getJSONArray("return").isArray()) {
-			//Print problem
-			listener.getLogger().println("Problem on "+myfunction+" "+myarguments+" for "+mytarget+":\n"+httpResponse.toString(2));
-			return false;
-                }
-		} catch (Exception e) {
-		    listener.getLogger().println("Problem with "+myfunction+" "+myarguments+" for "+mytarget+":\n"+e+"\n\n"+httpResponse.toString(2).split("\\\\n")[0]);
+		    Gson gson = new GsonBuilder().setPrettyPrinting().disableHtmlEscaping().create();
+		    scheduledJob = client.startCommand(mytarget, myfunction, saltArguments, kwArgs);
+		    jobResults = client.getJobResult(scheduledJob);
+		    // print out results of job
+		    listener.getLogger().println("Got jobResult async");
+		    for (Map.Entry<String, Object> entry : jobResults.entrySet()) {
+			//JSONObject line = (JSONObject) o;
+		        //listener.getLogger().println("Got jobResult async" + jobResults.entrySet());
+			listener.getLogger().println(entry.getKey() + " : " + gson.toJson(entry.getValue().toString()));
+			//listener.getLogger().println(" newline");
+			//for (Map values : entry.getValue()) {
+			    //listener.getLogger().println("  "+values);
+			//}
+		    }
+		} catch ( SaltStackException e) {
+		    listener.getLogger().println("Problem: "+e);
 		    return false;
-		}
-
-		//valide return
-		if (httpResponse.toString().contains("TypeError")) {
-		    listener.getLogger().println("Salt reported an error on "+myfunction+" "+myarguments+" for "+mytarget+":\n"+httpResponse.toString(2));
-		    return false;
-		} else {
-		    listener.getLogger().println("Response on "+myfunction+" "+myarguments+" for "+mytarget+":\n"+httpResponse.toString(2));
 		}
 	    }
 	    //No fail condition reached. Must be good.
@@ -422,19 +431,19 @@ public class SaltAPIBuilder extends Builder {
 		    @QueryParameter("userpass") final String userpass, 
 		    @QueryParameter("authtype") final String authtype) 
 		throws IOException, ServletException {
-		    JSONObject httpResponse = new JSONObject();
-		    JSONArray authArray = new JSONArray();
-		    JSONObject auth = new JSONObject();
-		    auth.put("username", username);
-		    auth.put("password", userpass);
-		    auth.put("eauth", authtype);
-		    authArray.add(auth);
-		    String token = Utils.getToken(servername, authArray);
-		    if (token.contains("Error")) {
-			return FormValidation.error("Client error : "+token);
-		    } else {
-			return FormValidation.ok("Success");
+		    URI uri = URI.create(servername);
+		    SaltStackClient client = new SaltStackClient(uri);
+		    AuthModule authmodule;
+		    authmodule = AuthModule.valueOf(authtype.toUpperCase());
+		    try {
+			//Get an auth token
+			Token token = client.login(username, userpass, authmodule);
+			//logout
+			client.logout();
+		    } catch ( SaltStackException e) {
+			return FormValidation.error("Client error : "+e);
 		    }
+		    return FormValidation.ok("Success");
 		}
 
 
