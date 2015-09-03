@@ -1,10 +1,13 @@
 package com.waytta;
 
 import com.suse.saltstack.netapi.client.SaltStackClient;
+import static com.suse.saltstack.netapi.AuthModule.*;
+import com.suse.saltstack.netapi.exception.*;
+import com.suse.saltstack.netapi.results.*;
+import com.suse.saltstack.netapi.results.ResultInfo;
+import com.suse.saltstack.netapi.datatypes.target.*;
 import com.suse.saltstack.netapi.datatypes.*;
 import com.suse.saltstack.netapi.*;
-import com.suse.saltstack.netapi.exception.*;
-import static com.suse.saltstack.netapi.AuthModule.*;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 
@@ -21,13 +24,9 @@ import org.kohsuke.stapler.DataBoundConstructor;
 import org.kohsuke.stapler.StaplerRequest;
 import org.kohsuke.stapler.QueryParameter;
 
-import net.sf.json.JSONArray;
-import net.sf.json.util.JSONUtils;
-import net.sf.json.JSONSerializer;
 import java.io.*;
 import java.util.*;
 import java.net.*;
-
 import javax.servlet.ServletException;
 
 
@@ -172,13 +171,6 @@ public class SaltAPIBuilder extends Builder {
 	public boolean perform(AbstractBuild build, Launcher launcher, BuildListener listener) {
 	    // This is where you 'build' the project.
 	    
-	    // If not not configured, grab the default
-	    int myJobPollTime = 10;
-	    if (jobPollTime == null) {
-		myJobPollTime = getDescriptor().getPollTime();
-	    } else {
-		myJobPollTime = jobPollTime;
-	    }
 	    Boolean mySaltMessageDebug = getDescriptor().getSaltMessageDebug();
 	    String myClientInterface = clientInterface;
 	    String mytarget = target;
@@ -186,12 +178,50 @@ public class SaltAPIBuilder extends Builder {
 	    String myarguments = arguments;
 	    String mykwarguments = kwarguments;
 
-	    //listener.getLogger().println("Salt Arguments before: "+myarguments);
+	    // Hardcode clientInterface if not yet set. Once constructor runs, this will not be necessary
+	    if (myClientInterface == null) {
+		myClientInterface = "local";
+	    }
+
+	    Boolean myBlockBuild = blockbuild;
+	    if (myBlockBuild == null) {
+		//Set a sane default if uninitialized
+		myBlockBuild = false;
+	    }
+
+	    // If not not configured, grab the default
+	    int myJobPollTime = 10;
+	    if (jobPollTime == null) {
+		myJobPollTime = getDescriptor().getPollTime();
+	    } else {
+		myJobPollTime = jobPollTime;
+	    }
+
 	    mytarget = Utils.paramorize(build, listener, target);
 	    myfunction = Utils.paramorize(build, listener, function);
 	    myarguments = Utils.paramorize(build, listener, arguments);
 	    mykwarguments = Utils.paramorize(build, listener, kwarguments);
-	    //listener.getLogger().println("Salt Arguments after: "+myarguments);
+
+	    //listener.getLogger().println("Salt target: "+mytarget);
+	    Target finaltarget;
+	    String commaSeparated = "jessievm, stratos.kix.";
+	    List<String> mytargetList = Arrays.asList(commaSeparated);
+	    switch (targettype) {
+		case "glob": 		finaltarget = new Glob(mytarget);
+					break;
+					/*
+		case "list":		List<String> targetItems = Arrays.asList(mytarget.split("\\s.*,\\s.*|\\s.*"));
+					listener.getLogger().println("Salt targetItems: "+targetItems);
+					finaltarget = new MinionList(targetItems);
+					break;
+					*/
+		case "list":		finaltarget = new MinionList(mytarget);
+					break;
+		case "nodegroup":	finaltarget = new NodeGroup(mytarget);
+					break;
+		default:		finaltarget = new Glob(mytarget);
+					break;
+	    }
 
 	    URI uri = URI.create(servername);
 	    SaltStackClient client = new SaltStackClient(uri);
@@ -206,36 +236,24 @@ public class SaltAPIBuilder extends Builder {
 		return false;
 	    }
 
-
-	    //If we got this far, auth must have been pretty good and we've got a token
-	    JSONArray saltArray = new JSONArray();
-	    JSONObject saltFunc = new JSONObject();
-	    // Hardcode clientInterface if not yet set. Once constructor runs, this will not be necessary
-	    if (myClientInterface == null) {
-		myClientInterface = "local";
-	    }
-
-	    saltFunc.put("client", myClientInterface);
+	    //saltFunc.put("client", myClientInterface);
 	    if (myClientInterface.equals("local_batch")) {
-		saltFunc.put("batch", batchSize);
+		//saltFunc.put("batch", batchSize);
 		listener.getLogger().println("Running in batch mode. Batch size: "+batchSize);
 	    }
 	    if (myClientInterface.equals("runner")) {
-		saltFunc.put("mods", mods);
+		//saltFunc.put("mods", mods);
 
 		if (usePillar) {
 	            String myPillarkey = Utils.paramorize(build, listener, pillarkey);
 	            String myPillarvalue = Utils.paramorize(build, listener, pillarvalue);
 		
-		    JSONObject jPillar = new JSONObject();
-		    jPillar.put(JSONUtils.stripQuotes(myPillarkey), JSONUtils.stripQuotes(myPillarvalue));
+		    //JSONObject jPillar = new JSONObject();
+		    //jPillar.put(JSONUtils.stripQuotes(myPillarkey), JSONUtils.stripQuotes(myPillarvalue));
 
-		    saltFunc.put("pillar", jPillar);
+		    //saltFunc.put("pillar", jPillar);
 		}
 	    }
-	    saltFunc.put("tgt", mytarget); 
-	    saltFunc.put("expr_form", targettype);
-	    saltFunc.put("fun", myfunction);
 	    List saltArguments = new ArrayList();
 	    Map kwArgs = new HashMap();
 	    if (myarguments.length() > 0){ 
@@ -261,70 +279,33 @@ public class SaltAPIBuilder extends Builder {
 		    }
 		}
 	    }
-            saltArray.add(saltFunc);
-	    if (mySaltMessageDebug) {
-	        listener.getLogger().println("Sending JSON: "+saltArray.toString());
-	    }
 
-	    Boolean myBlockBuild = blockbuild;
-	    if (myBlockBuild == null) {
-		//Set a sane default if uninitialized
-		myBlockBuild = false;
+	    ScheduledJob scheduledJob = new ScheduledJob();
+	    ResultInfoSet jobResults = new ResultInfoSet();
+	    //Send off salt api command
+	    try { 
+		scheduledJob = client.startCommand(finaltarget, myfunction, saltArguments, kwArgs);
+		if (scheduledJob.getJid() == null) {
+		    listener.getLogger().println("ERROR: Received empty jid. Salt command not sent.");
+		    return false;
+		}
+		listener.getLogger().println("Running jid: " + scheduledJob.getJid());
+		jobResults = client.getJobResult(scheduledJob);
+	    } catch ( SaltStackException e) {
+		listener.getLogger().println("Problem: "+e);
+		return false;
 	    }
 
 	    //blocking request
 	    if (myBlockBuild) {
-		ScheduledJob scheduledJob = new ScheduledJob();
-		//Send request to /minion url. This will give back a jid which we will need to poll and lookup for completion
-                try { 
-		    scheduledJob = client.startCommand(mytarget, myfunction, saltArguments, kwArgs);
-		    listener.getLogger().println("Running jid: " + scheduledJob.getJid());
-		} catch ( SaltStackException e) {
-		    listener.getLogger().println("Problem: "+e);
-		    return false;
-		}
-
 		//Request successfully sent. Now use jid to check if job complete
 		int numMinions = 0;
 		int numMinionsDone = 0;
-		Map<String, Object> jobResults = new HashMap<String, Object>();
-		//JSONArray returnArray = new JSONArray();
-		//httpResponse = Utils.getJSON(servername+"/jobs/"+jid, null, token);
-		try {
-		    jobResults = client.getJobResult(scheduledJob);
-		    listener.getLogger().println("Got jobResult initialrun" + jobResults.entrySet());
-		} catch ( SaltStackException e) {
-		    listener.getLogger().println("Problem: "+e);
-		    return false;
-		}
-		//for (String key : jobResults.keySet()) {
-		    //numMinionsDone += 1;
-		//}
-		/*
-		try {
-		    //info array will tell us how many minions were targeted
-		    returnArray = httpResponse.getJSONArray("info");
-		    for (Object o : returnArray ) {
-			JSONObject line = (JSONObject) o;
-			JSONArray minionsArray = line.getJSONArray("Minions");
-			//Check the info[Minions[]] array to see how many nodes we expect to hear back from
-			numMinions = minionsArray.size();
-			listener.getLogger().println("Waiting for " + numMinions + " minions");
-		    }
-		    returnArray = httpResponse.getJSONArray("return");
-		    //Check the return[] array to see how many minions have responded
-		    if (!returnArray.getJSONObject(0).names().isEmpty()) {
-			numMinionsDone = returnArray.getJSONObject(0).names().size();
-		    } else {
-			numMinionsDone = 0;
-		    }
-		    listener.getLogger().println(numMinionsDone + " minions are done");
-		} catch (Exception e) {
-		    listener.getLogger().println("Problem: "+myfunction+" "+myarguments+" to "+servername+" for "+mytarget+":\n"+e+"\n\n"+httpResponse.toString(2));
-		    return false;
-		}
-		*/
+		numMinions = jobResults.get(0).getMinions().size();
+		listener.getLogger().println("Waiting for " + numMinions + " minions");
 
+		numMinionsDone = numMinions - jobResults.get(0).getPendingMinions().size();
+		listener.getLogger().println(numMinionsDone + " minions are done");
 
 		//Now that we know how many minions have responded, and how many we are waiting on. Let's see more have finished
 		if (numMinionsDone < numMinions) {
@@ -342,45 +323,19 @@ public class SaltAPIBuilder extends Builder {
 		    }
 		    try {
 			jobResults = client.getJobResult(scheduledJob);
-			listener.getLogger().println("Got jobResult checking minions" + jobResults.entrySet());
-			numMinionsDone = 0;
-			for (String key : jobResults.keySet()) {
-			    numMinionsDone += 1;
-			}
-			if (myClientInterface.equals("local_batch")) {
-			    listener.getLogger().println("Minions finished: " + numMinionsDone);
-			    // TODO print out results of job
-			}
+			numMinionsDone = numMinions - jobResults.get(0).getPendingMinions().size();
 		    } catch ( SaltStackException e) {
 			listener.getLogger().println("Problem: "+e);
 			return false;
 		    }
 		}
 		//Loop is done. We have heard back from everybody. Good work team!
-		// TODO print out results of job
-	    } else {
-		//Just send a salt request. Don't wait for reply
-		ScheduledJob scheduledJob = new ScheduledJob();
-		Map<String, Object> jobResults = new HashMap<String, Object>();
-		try {
-		    Gson gson = new GsonBuilder().setPrettyPrinting().disableHtmlEscaping().create();
-		    scheduledJob = client.startCommand(mytarget, myfunction, saltArguments, kwArgs);
-		    jobResults = client.getJobResult(scheduledJob);
-		    // print out results of job
-		    listener.getLogger().println("Got jobResult async");
-		    for (Map.Entry<String, Object> entry : jobResults.entrySet()) {
-			//JSONObject line = (JSONObject) o;
-		        //listener.getLogger().println("Got jobResult async" + jobResults.entrySet());
-			listener.getLogger().println(entry.getKey() + " : " + gson.toJson(entry.getValue().toString()));
-			//listener.getLogger().println(" newline");
-			//for (Map values : entry.getValue()) {
-			    //listener.getLogger().println("  "+values);
-			//}
-		    }
-		} catch ( SaltStackException e) {
-		    listener.getLogger().println("Problem: "+e);
-		    return false;
-		}
+	    }
+            //print out results of job
+	    //Gson gson = new GsonBuilder().enableComplexMapKeySerialization().setPrettyPrinting().create();
+	    Gson gson = new GsonBuilder().enableComplexMapKeySerialization().create();
+	    for (Map.Entry<String, Object> entry : jobResults.get(0).getResults().entrySet()) {
+		listener.getLogger().println(entry.getKey() + ": " + gson.toJson(entry.getValue()));
 	    }
 	    //No fail condition reached. Must be good.
 	    return true;
@@ -482,8 +437,6 @@ public class SaltAPIBuilder extends Builder {
 		throws IOException, ServletException {
 		    if (value.length() == 0)
 			return FormValidation.error("Please specify a salt target");
-		    if (value.length() < 3)
-			return FormValidation.warning("Isn't it too short?");
 		    return FormValidation.ok();
 		}
 

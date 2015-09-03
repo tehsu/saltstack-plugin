@@ -37,13 +37,15 @@
   <f:entry title="Target Type" field="targettype">
     <select name="targettype">
       <f:option value="glob" selected="${instance.targettype == 'glob'}">glob</f:option>
-      <f:option value="pcre" selected="${instance.targettype == 'pcre'}">pcre</f:option>
       <f:option value="list" selected="${instance.targettype == 'list'}">list</f:option>
+      <f:option value="nodegroup" selected="${instance.targettype == 'nodegroup'}">nodegroup</f:option>
+      <!--
+      <f:option value="pcre" selected="${instance.targettype == 'pcre'}">pcre</f:option>
       <f:option value="grain" selected="${instance.targettype == 'grain'}">grain</f:option>
       <f:option value="pillar" selected="${instance.targettype == 'pillar'}">pillar</f:option>
-      <f:option value="nodegroup" selected="${instance.targettype == 'nodegroup'}">nodegroup</f:option>
       <f:option value="range" selected="${instance.targettype == 'range'}">range</f:option>
       <f:option value="compound" selected="${instance.targettype == 'compound'}">compound</f:option>
+      -->
     </select>
   </f:entry>
 

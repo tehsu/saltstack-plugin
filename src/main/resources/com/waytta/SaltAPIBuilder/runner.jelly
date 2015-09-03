@@ -17,6 +17,25 @@
     </table>
   </f:block>
 
+  <f:entry title="Define Pillar Data" field="instances">
+    <f:repeatable var="instance" name="instances" items="${descriptor.instances}" add="Add"
+      header="Pillar Data">
+      <table width="100%">
+        <f:entry title="pillar key" field="pillarkey">
+	  <f:textbox/>
+        </f:entry>
+	<f:entry title="Pillar value" field="pillarvalue">
+          <f:textbox/>
+	</f:entry>
+	<f:entry title="">
+	  <div align="right">
+	    <f:repeatableDeleteButton value="Delete"/>
+	  </div>
+        </f:entry>
+      </table>
+    </f:repeatable>
+  </f:entry>
+
   <f:invisibleEntry>
     <input name="clientInterface" type="hidden" value="runner"/>
   </f:invisibleEntry>
