@@ -70,6 +70,7 @@ public class SaltAPIBuilder extends Builder implements SimpleBuildStep {
     private boolean saveEnvVar = false;
     private final String credentialsId;
     private boolean saveFile = false;
+    private JSONArray returnArray;
 
 
     @DataBoundConstructor
@@ -171,6 +172,10 @@ public class SaltAPIBuilder extends Builder implements SimpleBuildStep {
         return clientInterface.getTag();
     }
 
+    public JSONArray getReturnArray() {
+        return returnArray;
+    }
+
 
     @Override
     public void perform(Run<?, ?> build, FilePath workspace, Launcher launcher, TaskListener listener)
@@ -205,9 +210,8 @@ public class SaltAPIBuilder extends Builder implements SimpleBuildStep {
         JSONObject saltFunc = prepareSaltFunction(build, listener, myClientInterface, mytarget, myfunction, myarguments);
         LOGGER.log(Level.FINE, "Sending JSON: " + saltFunc.toString());
 
-        JSONArray returnArray;
         try {
-            returnArray = performRequest(launcher, build, token, myservername, saltFunc, listener, netapi);
+            performRequest(launcher, build, token, myservername, saltFunc, listener, netapi);
         } catch (SaltException e) {
             throw new RuntimeException(e);
         }
@@ -259,7 +263,7 @@ public class SaltAPIBuilder extends Builder implements SimpleBuildStep {
         }
     }
 
-    public JSONArray performRequest(Launcher launcher, Run build, String token, String serverName, JSONObject saltFunc, TaskListener listener, String netapi)
+    public void performRequest(Launcher launcher, Run build, String token, String serverName, JSONObject saltFunc, TaskListener listener, String netapi)
             throws InterruptedException, IOException, SaltException {
         JSONArray returnArray = new JSONArray();
         JSONObject httpResponse = new JSONObject();
@@ -283,8 +287,6 @@ public class SaltAPIBuilder extends Builder implements SimpleBuildStep {
             httpResponse = launcher.getChannel().call(new HttpCallable(serverName, saltFunc, token));
             returnArray = httpResponse.getJSONArray("return");
         }
-
-        return returnArray;
     }
 
     public JSONObject prepareSaltFunction(Run build, TaskListener listener, String myClientInterface, String mytarget,
