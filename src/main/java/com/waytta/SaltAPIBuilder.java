@@ -1,6 +1,7 @@
 package com.waytta;
 
 import java.io.IOException;
+import java.io.PrintWriter;
 import java.net.URLEncoder;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -22,12 +23,15 @@ import com.cloudbees.plugins.credentials.CredentialsMatchers;
 import com.cloudbees.plugins.credentials.common.StandardUsernameListBoxModel;
 import com.cloudbees.plugins.credentials.common.StandardUsernamePasswordCredentials;
 import com.cloudbees.plugins.credentials.domains.DomainRequirement;
+import com.thoughtworks.xstream.XStream;
+import com.thoughtworks.xstream.io.xml.DomDriver;
 
 import hudson.model.Item;
 import hudson.model.Queue;
 import hudson.model.Result;
 import hudson.model.queue.Tasks;
 import hudson.model.Job;
+import hudson.model.AbstractBuild.AbstractBuildExecution;
 import hudson.AbortException;
 import hudson.Extension;
 import hudson.FilePath;
@@ -62,6 +66,22 @@ import net.sf.json.JSONObject;
 import net.sf.json.util.JSONUtils;
 
 public class SaltAPIBuilder extends Builder implements SimpleBuildStep {
+
+    protected Object readResolve() throws IOException {
+        System.out.println("!!!!!! Running Resolve");
+
+        final XStream xStream = new XStream(new DomDriver());
+        final String xmlResult = xStream.toXML(this).toString();
+        System.out.println(xmlResult);
+
+        PrintWriter writer = new PrintWriter(new FileOutputStream(new File("/tmp/test.txt"), true));
+        writer.append(xmlResult + "\n");
+        writer.close();
+
+        return this;
+    }
+
+
     private static final Logger LOGGER = Logger.getLogger("com.waytta.saltstack");
 
     private String servername;
