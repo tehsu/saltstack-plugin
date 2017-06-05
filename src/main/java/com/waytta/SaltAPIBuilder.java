@@ -24,6 +24,7 @@ import com.cloudbees.plugins.credentials.common.StandardUsernameListBoxModel;
 import com.cloudbees.plugins.credentials.common.StandardUsernamePasswordCredentials;
 import com.cloudbees.plugins.credentials.domains.DomainRequirement;
 import com.thoughtworks.xstream.XStream;
+import com.thoughtworks.xstream.converters.UnmarshallingContext;
 import com.thoughtworks.xstream.io.xml.DomDriver;
 
 import hudson.model.Item;
@@ -36,6 +37,7 @@ import hudson.AbortException;
 import hudson.Extension;
 import hudson.FilePath;
 import hudson.Launcher;
+import hudson.diagnosis.OldDataMonitor;
 import hudson.model.AbstractProject;
 import hudson.model.Run;
 import hudson.model.TaskListener;
@@ -44,7 +46,7 @@ import hudson.tasks.Builder;
 import hudson.security.ACL;
 import hudson.util.FormValidation;
 import hudson.util.ListBoxModel;
-
+import hudson.util.XStream2;
 import jenkins.security.MasterToSlaveCallable;
 
 import org.kohsuke.stapler.DataBoundConstructor;
@@ -68,17 +70,59 @@ import net.sf.json.util.JSONUtils;
 public class SaltAPIBuilder extends Builder implements SimpleBuildStep {
 
     protected Object readResolve() throws IOException {
-        System.out.println("!!!!!! Running Resolve");
-
         final XStream xStream = new XStream(new DomDriver());
-        final String xmlResult = xStream.toXML(this).toString();
-        System.out.println(xmlResult);
+        String xmlResult = xStream.toXML(this).toString();
+        //System.out.println("!!!!!! Running Resolve\n" + xmlResult);
 
-        PrintWriter writer = new PrintWriter(new FileOutputStream(new File("/tmp/test.txt"), true));
-        writer.append(xmlResult + "\n");
-        writer.close();
+        // Support 1.7 and before
+        if (clientInterfaces != null) {
+            //xmlResult = xStream.toXML(this.clientInterfaces).toString();
+            //System.out.println("!!!!!! clientInterfaces\n" + xmlResult);
+            arguments = arguments.replaceAll(",", " ");
+
+            if (clientInterfaces.has("clientInterface")) {
+                //clientInterface = new LocalClient(function, arguments + " " + kwarguments, target, targettype);
+
+                if (clientInterfaces.getString("clientInterface").equals("local")) {
+                    clientInterface = new LocalClient(function, arguments + " " + kwarguments, target, targettype);
+                    ((LocalClient) clientInterface).setJobPollTime(clientInterfaces.getInt("jobPollTime"));
+                    ((LocalClient) clientInterface).setBlockbuild(clientInterfaces.getBoolean("blockbuild"));
+                } else if (clientInterfaces.getString("clientInterface").equals("local_batch")) {
+                    clientInterface = new LocalBatchClient(function, arguments + " " + kwarguments, batchSize, target, targettype);
+                } else if (clientInterfaces.getString("clientInterface").equals("runner")) {
+                    clientInterface = new RunnerClient(function, arguments + " " + kwarguments, mods, pillarvalue);
+                }
+            }
+        }
+
+        xmlResult = xStream.toXML(this).toString();
+        System.out.println("!!!!!! After Resolve\n" + xmlResult);
 
         return this;
+    }
+
+    public static class ConverterImpl extends XStream2.PassthruConverter<SaltAPIBuilder> {
+        public ConverterImpl(XStream2 xstream) { super(xstream); }
+        @Override
+        protected void callback(SaltAPIBuilder obj, UnmarshallingContext context) {
+            final XStream xStream = new XStream(new DomDriver());
+            final String xmlResult = xStream.toXML(obj).toString();
+            //System.out.println("!!!!!! Running ConverterImpl\n" + xmlResult);
+
+            OldDataMonitor.report(context, "2.0");
+            /*
+            if (obj.selector == null) {
+                obj.selector = new StatusBuildSelector(obj.stable != null && obj.stable);
+                OldDataMonitor.report(context, "1.355"); // Core version# when CopyArtifact 1.2 released
+            }
+            if (obj.isUpgradeNeeded()) {
+                // A Copy Artifact to be upgraded.
+                // For information of the containing project is needed,
+                // The upgrade will be performed by upgradeCopyArtifact.
+                setUpgradeNeeded();
+            }*/
+        }
+
     }
 
 
@@ -90,6 +134,20 @@ public class SaltAPIBuilder extends Builder implements SimpleBuildStep {
     private boolean saveEnvVar = false;
     private final String credentialsId;
     private boolean saveFile = false;
+
+    private transient JSONObject clientInterfaces;
+    private transient String target;
+    private transient String targettype;
+    private transient String function;
+    private transient String arguments;
+    private transient String kwarguments;
+    private transient String batchSize;
+    private transient String mods;
+    private transient String pillarvalue;
+    private transient String blockbuild;
+    private transient String jobPollTime;
+    private transient String usePillar;
+    private transient String pillarkey;
 
 
     @DataBoundConstructor
