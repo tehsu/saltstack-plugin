@@ -101,6 +101,7 @@ public class SaltAPIBuilder extends Builder implements SimpleBuildStep {
         return this;
     }
 
+    /*
     public static class ConverterImpl extends XStream2.PassthruConverter<SaltAPIBuilder> {
         public ConverterImpl(XStream2 xstream) { super(xstream); }
         @Override
@@ -110,7 +111,7 @@ public class SaltAPIBuilder extends Builder implements SimpleBuildStep {
             //System.out.println("!!!!!! Running ConverterImpl\n" + xmlResult);
 
             OldDataMonitor.report(context, "2.0");
-            /*
+
             if (obj.selector == null) {
                 obj.selector = new StatusBuildSelector(obj.stable != null && obj.stable);
                 OldDataMonitor.report(context, "1.355"); // Core version# when CopyArtifact 1.2 released
@@ -120,10 +121,10 @@ public class SaltAPIBuilder extends Builder implements SimpleBuildStep {
                 // For information of the containing project is needed,
                 // The upgrade will be performed by upgradeCopyArtifact.
                 setUpgradeNeeded();
-            }*/
+            }
         }
-
     }
+     */
 
 
     private static final Logger LOGGER = Logger.getLogger("com.waytta.saltstack");
