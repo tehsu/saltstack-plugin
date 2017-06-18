@@ -70,21 +70,13 @@ import net.sf.json.util.JSONUtils;
 public class SaltAPIBuilder extends Builder implements SimpleBuildStep, Serializable {
     private static final long serialVersionUID = 1L;
 
-
+    @SuppressWarnings("unused")
     protected Object readResolve() throws IOException {
-        final XStream xStream = new XStream(new DomDriver());
-        String xmlResult = xStream.toXML(this).toString();
-        //System.out.println("!!!!!! Running Resolve\n" + xmlResult);
-
         // Support 1.7 and before
         if (clientInterfaces != null) {
-            //xmlResult = xStream.toXML(this.clientInterfaces).toString();
-            //System.out.println("!!!!!! clientInterfaces\n" + xmlResult);
             arguments = arguments.replaceAll(",", " ");
 
             if (clientInterfaces.has("clientInterface")) {
-                //clientInterface = new LocalClient(function, arguments + " " + kwarguments, target, targettype);
-
                 if (clientInterfaces.getString("clientInterface").equals("local")) {
                     clientInterface = new LocalClient(function, arguments + " " + kwarguments, target, targettype);
                     ((LocalClient) clientInterface).setJobPollTime(clientInterfaces.getInt("jobPollTime"));
@@ -95,38 +87,10 @@ public class SaltAPIBuilder extends Builder implements SimpleBuildStep, Serializ
                     clientInterface = new RunnerClient(function, arguments + " " + kwarguments, mods, pillarvalue);
                 }
             }
+            clientInterfaces = null;
         }
-
-        xmlResult = xStream.toXML(this).toString();
-        System.out.println("!!!!!! After Resolve\n" + xmlResult);
-
         return this;
     }
-
-    /*
-    public static class ConverterImpl extends XStream2.PassthruConverter<SaltAPIBuilder> {
-        public ConverterImpl(XStream2 xstream) { super(xstream); }
-        @Override
-        protected void callback(SaltAPIBuilder obj, UnmarshallingContext context) {
-            final XStream xStream = new XStream(new DomDriver());
-            final String xmlResult = xStream.toXML(obj).toString();
-            //System.out.println("!!!!!! Running ConverterImpl\n" + xmlResult);
-
-            OldDataMonitor.report(context, "2.0");
-
-            if (obj.selector == null) {
-                obj.selector = new StatusBuildSelector(obj.stable != null && obj.stable);
-                OldDataMonitor.report(context, "1.355"); // Core version# when CopyArtifact 1.2 released
-            }
-            if (obj.isUpgradeNeeded()) {
-                // A Copy Artifact to be upgraded.
-                // For information of the containing project is needed,
-                // The upgrade will be performed by upgradeCopyArtifact.
-                setUpgradeNeeded();
-            }
-        }
-    }
-     */
 
 
     private static final Logger LOGGER = Logger.getLogger("com.waytta.saltstack");
@@ -138,18 +102,31 @@ public class SaltAPIBuilder extends Builder implements SimpleBuildStep, Serializ
     private final String credentialsId;
     private boolean saveFile = false;
 
+    @Deprecated
     private transient JSONObject clientInterfaces;
+    @Deprecated
     private transient String target;
+    @Deprecated
     private transient String targettype;
+    @Deprecated
     private transient String function;
+    @Deprecated
     private transient String arguments;
+    @Deprecated
     private transient String kwarguments;
+    @Deprecated
     private transient String batchSize;
+    @Deprecated
     private transient String mods;
+    @Deprecated
     private transient String pillarvalue;
-    private transient String blockbuild;
-    private transient String jobPollTime;
-    private transient String usePillar;
+    @Deprecated
+    private transient Boolean blockbuild;
+    @Deprecated
+    private transient Integer jobPollTime;
+    @Deprecated
+    private transient Boolean usePillar;
+    @Deprecated
     private transient String pillarkey;
 
 
