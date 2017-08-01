@@ -356,7 +356,7 @@ public class SaltAPIBuilder extends Builder implements SimpleBuildStep, Serializ
         switch (myClientInterface) {
         case "local":
             saltFunc.put("tgt", mytarget);
-            saltFunc.put("expr_form", getTargettype());
+            saltFunc.put("tgt_type", getTargettype());
             if (getBlockbuild()) {
                 // when sending to the /minion endpoint, use local_async instead of just local
                 saltFunc.element("client", "local_async");
@@ -364,7 +364,7 @@ public class SaltAPIBuilder extends Builder implements SimpleBuildStep, Serializ
             break;
         case "local_batch":
             saltFunc.put("tgt", mytarget);
-            saltFunc.put("expr_form", getTargettype());
+            saltFunc.put("tgt_type", getTargettype());
             String mybatch = Utils.paramorize(build, listener, getBatchSize());
             saltFunc.put("batch", mybatch);
             listener.getLogger().println("Running in batch mode. Batch size: " + mybatch);
@@ -380,7 +380,7 @@ public class SaltAPIBuilder extends Builder implements SimpleBuildStep, Serializ
             break;
         case "local_subset":
             saltFunc.put("tgt", mytarget);
-            saltFunc.put("expr_form", getTargettype());
+            saltFunc.put("tgt_type", getTargettype());
             String mySubset = Utils.paramorize(build, listener, getSubset());
             saltFunc.put("sub", Integer.parseInt(mySubset));
             listener.getLogger().println("Running in subset mode. Subset size: " + mySubset);
